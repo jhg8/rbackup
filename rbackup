@@ -18,15 +18,15 @@ ENDUSAGE
 while getopts "hf" opt; do
   case "${opt}" in
     h )
-        usage
-  			exit 1;
+        usage;
+        exit 1;
         ;;
     f )
         FORCE=1
         ;;
     * )
-        usage
-  			exit 1;
+        usage;
+        exit 1;
       ;;
   esac
 done
@@ -58,9 +58,9 @@ rdiff() {
 }
 
 if [ -n "$SSHCMD" ]; then
-  $SSHCMD $PULL_SERVER echo > /dev/null || (echo "Can't connect to $PULL_SERVER"; exit 1)
+  $SSHCMD $PULL_SERVER echo > /dev/null || { echo "Can't connect to $PULL_SERVER"; exit 1; }
 else
-  ssh $PULL_SERVER echo > /dev/null || (echo "Can't connect to $PULL_SERVER"; exit 1)
+  ssh $PULL_SERVER echo > /dev/null || { echo "Can't connect to $PULL_SERVER"; exit 1; }
 fi
 
 if [[ "$1" == "pull" ]]; then
@@ -73,7 +73,7 @@ if [[ "$1" == "pull" ]]; then
     exit 0;
   fi
 elif [[ "$1" == "push" ]]; then
-  stat $BACKUP_LIST > /dev/null 2>&1 || exit;
+  stat $BACKUP_LIST > /dev/null 2>&1 || { echo "Backup files missing"; exit 1; }
 
   if [ -z $FORCE ]; then
     $DIR/rsync-loop $PULL_SERVER:$BACKUP_NAME/last-sync $DATA/last-sync-remote;
