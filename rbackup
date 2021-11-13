@@ -39,19 +39,19 @@ fi
 
 . $DIR/rbackup.conf
 
-if [ -n "$SSHCMD" ]; then
-  RSYNC_CMD="$DIR/rsync-loop -e \"$SSHCMD\" -ah --partial --info=progress2 --delete --relative"
-else
-  RSYNC_CMD="$DIR/rsync-loop -ah --partial --info=progress2 --delete --relative"
-fi
+rsync-wrapper() {
+  $DIR/rsync-loop -ah --partial --info=progress2 --delete --relative $@;
+}
+rsync-diff-wrapper() {
+  if [ -n "$SSHCMD" ]; then
+    rsync -e "$SSHCMD" -nai --delete --relative $@;
+  else
+    rsync -nai --delete --relative $@;
+  fi
+}
 
 rdiff() {
-  if [ -n "$SSHCMD" ]; then
-    DIFF_RSYNC_CMD="rsync -e \"$SSHCMD\" -nai --delete --relative"
-  else
-    DIFF_RSYNC_CMD="rsync -nai --delete --relative"
-  fi
-  for f in $($DIFF_RSYNC_CMD $BACKUP_LIST \
+  for f in $(rsync-diff-wrapper $BACKUP_LIST \
     $PULL_SERVER:$BACKUP_NAME | awk '{print $2;}'); do
     [[ $f =~ /$ ]] || [[ $f =~ last-sync$ ]] || echo $f;
   done
@@ -68,7 +68,7 @@ if [[ "$1" == "pull" ]]; then
   echo
   if [[ $REPLY =~ ^[Yy]$ ]]
   then
-    $RSYNC_CMD $PULL_SERVER$(for f in $BACKUP_LIST; do echo -n ":$BACKUP_NAME/.$f "; done) /;
+    rsync-wrapper $PULL_SERVER$(for f in $BACKUP_LIST; do echo -n ":$BACKUP_NAME/.$f "; done) /;
     $DIR/rsync-loop $PULL_SERVER:$BACKUP_NAME/last-sync $DATA/last-sync;
     exit 0;
   fi
@@ -84,7 +84,7 @@ elif [[ "$1" == "push" ]]; then
 
   for server in $PUSH_SERVER; do
     echo "Backing up to $server";
-    $RSYNC_CMD $BACKUP_LIST \
+    rsync-wrapper $BACKUP_LIST \
     $server:$BACKUP_NAME/;
   done;
 
