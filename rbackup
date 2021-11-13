@@ -47,11 +47,11 @@ fi
 
 rdiff() {
   if [ -n "$SSHCMD" ]; then
-    RSYNC_CMD="rsync -e \"$SSHCMD\" -nai --delete --relative"
+    DIFF_RSYNC_CMD="rsync -e \"$SSHCMD\" -nai --delete --relative"
   else
-    RSYNC_CMD="rsync -nai --delete --relative"
+    DIFF_RSYNC_CMD="rsync -nai --delete --relative"
   fi
-  for f in $($RSYNC_CMD $BACKUP_LIST \
+  for f in $($DIFF_RSYNC_CMD $BACKUP_LIST \
     $PULL_SERVER:$BACKUP_NAME | awk '{print $2;}'); do
     [[ $f =~ /$ ]] || [[ $f =~ last-sync$ ]] || echo $f;
   done
@@ -79,9 +79,8 @@ elif [[ "$1" == "push" ]]; then
     $DIR/rsync-loop $PULL_SERVER:$BACKUP_NAME/last-sync $DATA/last-sync-remote;
     diff $DATA/last-sync $DATA/last-sync-remote || { echo "Sync conflict, exiting"; exit 1; }
     rm $DATA/last-sync-remote;
-
-    [[ $(rdiff) == "" ]] && { echo "Nothing to backup, exiting"; exit ; }
   fi
+  [[ $(rdiff) == "" ]] && { echo "Nothing to backup, exiting"; exit ; }
 
   for server in $PUSH_SERVER; do
     echo "Backing up to $server";
