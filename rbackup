@@ -39,16 +39,29 @@ fi
 
 . $DIR/rbackup.conf
 
-RSYNC_CMD="$DIR/rsync-loop -ah --partial --info=progress2 --delete --relative"
+if [ -n "$SSHCMD" ]; then
+  RSYNC_CMD="$DIR/rsync-loop -e \"$SSHCMD\" -ah --partial --info=progress2 --delete --relative"
+else
+  RSYNC_CMD="$DIR/rsync-loop -ah --partial --info=progress2 --delete --relative"
+fi
 
 rdiff() {
-    for f in $(rsync -nai --delete --relative $BACKUP_LIST \
-      $PULL_SERVER:$BACKUP_NAME | awk '{print $2;}'); do
-      [[ $f =~ /$ ]] || [[ $f =~ last-sync$ ]] || echo $f;
-    done
+  if [ -n "$SSHCMD" ]; then
+    RSYNC_CMD="rsync -e \"$SSHCMD\" -nai --delete --relative"
+  else
+    RSYNC_CMD="rsync -nai --delete --relative"
+  fi
+  for f in $($RSYNC_CMD $BACKUP_LIST \
+    $PULL_SERVER:$BACKUP_NAME | awk '{print $2;}'); do
+    [[ $f =~ /$ ]] || [[ $f =~ last-sync$ ]] || echo $f;
+  done
 }
 
-ssh $PULL_SERVER echo > /dev/null || (echo "Can't connect to $PULL_SERVER"; exit 1)
+if [ -n "$SSHCMD" ]; then
+  $SSHCMD $PULL_SERVER echo > /dev/null || (echo "Can't connect to $PULL_SERVER"; exit 1)
+else
+  ssh $PULL_SERVER echo > /dev/null || (echo "Can't connect to $PULL_SERVER"; exit 1)
+fi
 
 if [[ "$1" == "pull" ]]; then
   read -p "Are you sure you want to overwrite local data with backup ? [Yy] " -n 1 -r
