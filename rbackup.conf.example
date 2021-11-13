@@ -1,0 +1,8 @@
+export DATA="$DIR/data"
+export PULL_SERVER="user@machine"
+export PUSH_SERVER="user@machine"
+export BACKUP_NAME="local"
+export BACKUP_LIST="\
+$HOME/example \
+/etc/example \
+"

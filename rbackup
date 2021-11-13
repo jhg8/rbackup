@@ -1,0 +1,91 @@
+#!/bin/bash
+
+set -e
+
+DIR=$(dirname $(realpath $0))
+usage() {
+  cat << ENDUSAGE
+Usage: $0 [-h] CMD
+    -h              Show help
+    -f              Force push
+    CMD:
+      diff
+      push
+      pull
+ENDUSAGE
+1>&2;
+}
+while getopts "hf" opt; do
+  case "${opt}" in
+    h )
+        usage
+  			exit 1;
+        ;;
+    f )
+        FORCE=1
+        ;;
+    * )
+        usage
+  			exit 1;
+      ;;
+  esac
+done
+shift $((OPTIND-1))
+
+if [[ "$1" != "pull" && "$1" != "push" && "$1" != "diff" ]]; then
+  echo "Wrong action";
+  exit 1
+fi
+
+. $DIR/rbackup.conf
+
+RSYNC_CMD="$DIR/rsync-loop -ah --partial --info=progress2 --delete --relative"
+
+rdiff() {
+    for f in $(rsync -nai --delete --relative $BACKUP_LIST \
+      $PULL_SERVER:$BACKUP_NAME | awk '{print $2;}'); do
+      [[ $f =~ /$ ]] || [[ $f =~ last-sync$ ]] || echo $f;
+    done
+}
+
+ssh $PULL_SERVER echo > /dev/null || (echo "Can't connect to $PULL_SERVER"; exit 1)
+
+if [[ "$1" == "pull" ]]; then
+  read -p "Are you sure you want to overwrite local data with backup ? [Yy] " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]
+  then
+    $RSYNC_CMD $PULL_SERVER$(for f in $BACKUP_LIST; do echo -n ":$BACKUP_NAME/.$f "; done) /;
+    $DIR/rsync-loop $PULL_SERVER:$BACKUP_NAME/last-sync $DATA/last-sync;
+    exit 0;
+  fi
+elif [[ "$1" == "push" ]]; then
+  stat $BACKUP_LIST > /dev/null 2>&1 || exit;
+
+  if [ -z $FORCE ]; then
+    $DIR/rsync-loop $PULL_SERVER:$BACKUP_NAME/last-sync $DATA/last-sync-remote;
+    diff $DATA/last-sync $DATA/last-sync-remote || { echo "Sync conflict, exiting"; exit 1; }
+    rm $DATA/last-sync-remote;
+
+    [[ $(rdiff) == "" ]] && { echo "Nothing to backup, exiting"; exit ; }
+  fi
+
+  for server in $PUSH_SERVER; do
+    echo "Backing up to $server";
+    $RSYNC_CMD $BACKUP_LIST \
+    $server:$BACKUP_NAME/;
+  done;
+
+  date +%s > $DATA/last-sync;
+  $DIR/rsync-loop $DATA/last-sync $PULL_SERVER:$BACKUP_NAME/last-sync;
+  echo "Successfull push";
+
+elif [[ "$1" == "diff" ]]; then
+    set +e;
+    echo "Diff with remote backup";
+    rdiff;
+    echo && echo "Newer local files since last sync";
+    for b in $BACKUP_LIST; do
+      find $b -newermt @$(cat $DATA/last-sync);
+    done
+fi
