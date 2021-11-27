@@ -1,9 +1,18 @@
-export DATA="$DIR/data"
-export PULL_SERVER="user@machine"
-export PUSH_SERVER="user@machine"
-export BACKUP_NAME="local"
-export SSHCMD="ssh -i key-path"
-export BACKUP_LIST="\
-$HOME/example \
-/etc/example \
-"
+#!/bin/bash
+PULL_SERVER="example@server"
+PUSH_SERVER_LIST=("foo@server2 bar@server3")
+BACKUP_NAME="example"
+DIR_TO_BACKUP=/path/example
+# Paths at root of DIR_TO_BACKUP
+INCLUDE_LIST=(
+  "data"
+  "other/data"
+  "projects"
+)
+# Paths at root of DIR_TO_BACKUP
+# Exclude sub-folders of path named foo with path/**foo
+# Nothing else
+EXCLUDE_LIST=(
+  "projects/python-project/env"
+  "projects/**__pycache__"
+)

@@ -5,8 +5,6 @@
 ### Runs rsync, retrying on errors up to a maximum number of tries.
 ### Simply edit the rsync line in the script to whatever parameters you need.
 
-. $DIR/rbackup.conf
-
 # Trap interrupts and exit instead of continuing the loop
 trap "echo Exited!; exit;" SIGINT SIGTERM
 
@@ -19,11 +17,7 @@ false
 while [ $? -ne 0 -a $i -lt $MAX_RETRIES ]
 do
  i=$(($i+1))
- if [ -n "$SSHCMD" ]; then
-   rsync -e "$SSHCMD" $@
- else
-   rsync $@
- fi
+ rsync $@
 done
 
 if [ $i -eq $MAX_RETRIES ]

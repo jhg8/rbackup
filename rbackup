@@ -5,9 +5,10 @@ set -e
 DIR=$(dirname $(realpath $0))
 usage() {
   cat << ENDUSAGE
-Usage: $0 [-h] CMD
+Usage: $0 [-fh] -c CONF CMD
     -h              Show help
     -f              Force push
+    -c              Conf path
     CMD:
       diff
       push
@@ -15,7 +16,9 @@ Usage: $0 [-h] CMD
 ENDUSAGE
 1>&2;
 }
-while getopts "hf" opt; do
+CONF_PATH=$DIR/rbackup.conf
+DATA="$DIR/data"
+while getopts "c:fh" opt; do
   case "${opt}" in
     h )
         usage;
@@ -23,6 +26,9 @@ while getopts "hf" opt; do
         ;;
     f )
         FORCE=1
+        ;;
+    c )
+        CONF_PATH=${OPTARG}
         ;;
     * )
         usage;
@@ -33,71 +39,74 @@ done
 shift $((OPTIND-1))
 
 if [[ "$1" != "pull" && "$1" != "push" && "$1" != "diff" ]]; then
-  echo "Wrong action";
-  exit 1
+  echo "Wrong action"; exit 1
 fi
+. $CONF_PATH
 
-. $DIR/rbackup.conf
+EXCLUDE_LIST_RSYNC=(
+  $(for e in "${EXCLUDE_LIST[@]}"; do echo -n "--exclude /$e "; done)
+)
+EXCLUDE_LIST_GREP=(
+  $(for e in "${EXCLUDE_LIST[@]}"; do echo -n "^$(echo $e | sed 's/\*\*/.*/g')[/|$]"; done)
+)
 
 rsync-wrapper() {
-  $DIR/rsync-loop -ah --partial --info=progress2 --delete --relative $@;
-}
-rsync-diff-wrapper() {
-  if [ -n "$SSHCMD" ]; then
-    rsync -e "$SSHCMD" -nai --delete --relative $@;
-  else
-    rsync -nai --delete --relative $@;
-  fi
+  $DIR/rsync-loop -ah --partial --info=progress2 --delete --force --relative \
+     ${EXCLUDE_LIST_RSYNC[@]} $@;
 }
 
-rdiff() {
-  for f in $(rsync-diff-wrapper $BACKUP_LIST \
-    $PULL_SERVER:$BACKUP_NAME | awk '{print $2;}'); do
-    [[ $f =~ /$ ]] || [[ $f =~ last-sync$ ]] || echo $f;
-  done
-}
-
-if [ -n "$SSHCMD" ]; then
-  $SSHCMD $PULL_SERVER echo > /dev/null || { echo "Can't connect to $PULL_SERVER"; exit 1; }
-else
-  ssh $PULL_SERVER echo > /dev/null || { echo "Can't connect to $PULL_SERVER"; exit 1; }
-fi
+ssh $PULL_SERVER echo > /dev/null || { echo "Can't connect to $PULL_SERVER"; exit 1; }
+cd $DIR_TO_BACKUP;
 
 if [[ "$1" == "pull" ]]; then
   read -p "Are you sure you want to overwrite local data with backup ? [Yy] " -n 1 -r
   echo
   if [[ $REPLY =~ ^[Yy]$ ]]
   then
-    rsync-wrapper $PULL_SERVER$(for f in $BACKUP_LIST; do echo -n ":$BACKUP_NAME/.$f "; done) /;
+    rsync-wrapper $PULL_SERVER$(
+      for f in ${INCLUDE_LIST[@]}; do echo -n ":$BACKUP_NAME/./$f "; done
+      ) $DIR_TO_BACKUP;
     $DIR/rsync-loop $PULL_SERVER:$BACKUP_NAME/last-sync $DATA/last-sync;
     exit 0;
   fi
 elif [[ "$1" == "push" ]]; then
-  stat $BACKUP_LIST > /dev/null 2>&1 || { echo "Backup files missing"; exit 1; }
+  stat ${INCLUDE_LIST[@]} > /dev/null 2>&1 || { echo "Backup files missing"; exit 1; }
 
-  if [ -z $FORCE ]; then
+  if [ -z "$FORCE" ]; then
     $DIR/rsync-loop $PULL_SERVER:$BACKUP_NAME/last-sync $DATA/last-sync-remote;
     diff $DATA/last-sync $DATA/last-sync-remote || { echo "Sync conflict, exiting"; exit 1; }
     rm $DATA/last-sync-remote;
   fi
-  [[ $(rdiff) == "" ]] && { echo "Nothing to backup, exiting"; exit ; }
 
-  for server in $PUSH_SERVER; do
-    echo "Backing up to $server";
-    rsync-wrapper $BACKUP_LIST \
-    $server:$BACKUP_NAME/;
-  done;
-
-  date +%s > $DATA/last-sync;
-  $DIR/rsync-loop $DATA/last-sync $PULL_SERVER:$BACKUP_NAME/last-sync;
-  echo "Successfull push";
+  TMPLOG="/tmp/rbackup-rsync-log-$(date +%s)"
+  echo "Backing up to $PULL_SERVER";
+  rsync-wrapper --log-file="$TMPLOG" ${INCLUDE_LIST[@]} \
+  $PULL_SERVER:$BACKUP_NAME/;
+  if [ $(cat $TMPLOG|wc -l) -gt 2 ]; then
+    date +%s > $DATA/last-sync;
+    $DIR/rsync-loop $DATA/last-sync $PULL_SERVER:$BACKUP_NAME/last-sync;
+  fi
+  if [ $(cat $TMPLOG|wc -l) -gt 2 ] || [ -n "$FORCE" ]; then
+    for server in $PUSH_SERVER_LIST; do
+      echo "Backing up to $server";
+      rsync-wrapper ${INCLUDE_LIST[@]} $server:$BACKUP_NAME/;
+    done;
+  fi
+  rm -rf "$TMPLOG";
 
 elif [[ "$1" == "diff" ]]; then
     set +e;
     echo "Diff with remote backup";
-    rdiff;
-    echo && echo "Newer local files since last sync";
-    for b in $BACKUP_LIST; do
-      find $b -newermt @$(cat $DATA/last-sync);
+    for f in $(
+      rsync -nai --delete --relative \
+        ${EXCLUDE_LIST_RSYNC[@]} ${INCLUDE_LIST[@]} $PULL_SERVER:$BACKUP_NAME |
+      awk '{print $2;}'); do
+      [[ $f =~ /$ ]] || [[ $f =~ last-sync$ ]] || echo $f;
     done
+    echo && echo "Newer local files since last sync";
+    FILE_LIST=($(find ${INCLUDE_LIST[@]} -type f -newermt @$(cat $DATA/last-sync)))
+    for e in "${EXCLUDE_LIST_GREP[@]}"; do
+      FILE_LIST=($(for f in "${FILE_LIST[@]}"; do echo $f; done | grep -Ev $e))
+    done
+    for f in "${FILE_LIST[@]}"; do echo $f; done
 fi
